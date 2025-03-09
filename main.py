@@ -46,13 +46,13 @@ def setup_logging():
 logger = setup_logging()
 
 # Configuration from environment variables
-REDIS_HUB_HOST = os.environ.get("REDIS_HUB_HOST", "localhost")
-REDIS_HUB_PORT = int(os.environ.get("REDIS_HUB_PORT", "8001"))
+REDIS_API_HOST = os.environ.get("REDIS_API_HOST", "localhost")
+REDIS_API_PORT = int(os.environ.get("REDIS_API_PORT", "8001"))
 WORKER_ID = os.environ.get("WORKER_ID", f"worker-{uuid.uuid4().hex[:8]}")
 HEARTBEAT_INTERVAL = int(os.environ.get("HEARTBEAT_INTERVAL", "30"))
 
 # WebSocket connection to Redis Hub
-REDIS_HUB_WS_URL = f"ws://{REDIS_HUB_HOST}:{REDIS_HUB_PORT}/ws/worker/{WORKER_ID}"
+REDIS_HUB_WS_URL = f"ws://{REDIS_API_HOST}:{REDIS_API_PORT}/ws/worker/{WORKER_ID}"
 
 # Worker capabilities
 WORKER_CAPABILITIES = {
@@ -207,7 +207,7 @@ if __name__ == "__main__":
         """)
         
         logger.info(f"Starting worker {WORKER_ID}")
-        logger.info(f"Connecting to Redis Hub at {REDIS_HUB_HOST}:{REDIS_HUB_PORT}")
+        logger.info(f"Connecting to Redis Hub at {REDIS_API_HOST}:{REDIS_API_PORT}")
         
         # Run the worker
         asyncio.run(connect_to_hub())
