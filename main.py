@@ -5,45 +5,10 @@ import sys
 import json
 import uuid
 import time
-import logging
+from utils.logger import logger
 import asyncio
 import websockets
 from typing import Dict, Any, Optional, List
-
-# Configure logging
-def setup_logging():
-    """Set up basic logging configuration"""
-    # Get the root logger
-    root_logger = logging.getLogger()
-    
-    # Clear any existing handlers to avoid duplicate logs
-    if root_logger.handlers:
-        for handler in root_logger.handlers:
-            root_logger.removeHandler(handler)
-    
-    # Default level from environment or DEBUG for development
-    log_level_name = os.environ.get("LOG_LEVEL", "DEBUG")
-    log_level = getattr(logging, log_level_name.upper(), logging.DEBUG)
-    
-    # Set root logger level
-    root_logger.setLevel(log_level)
-    
-    # Create console handler with detailed formatting
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
-    
-    # Detailed format for development
-    log_format = "%(asctime)s - %(levelname)s - %(name)s:%(lineno)d - %(message)s"
-    formatter = logging.Formatter(log_format)
-    console_handler.setFormatter(formatter)
-    
-    # Add handler to root logger
-    root_logger.addHandler(console_handler)
-    
-    return root_logger
-
-# Initialize logging
-logger = setup_logging()
 
 # Configuration from environment variables
 REDIS_API_HOST = os.environ.get("REDIS_API_HOST", "localhost")
@@ -69,7 +34,6 @@ async def connect_to_hub():
     while True:
         try:
             async with websockets.connect(REDIS_HUB_WS_URL) as websocket:
-                logger.info("Connected to Redis Hub")
                 
                 # Send initial status message
                 await websocket.send(json.dumps({
@@ -89,7 +53,7 @@ async def connect_to_hub():
                         message = await websocket.recv()
                         await handle_message(websocket, message)
                 except Exception as e:
-                    logger.error(f"Error in message loop: {str(e)}")
+                    print(f"\n\n==== ERROR PROCESSING MESSAGE: {str(e)} ===\n\n")
                 finally:
                     heartbeat_task.cancel()
                     try:
@@ -98,8 +62,6 @@ async def connect_to_hub():
                         pass
         
         except Exception as e:
-            logger.error(f"Connection error: {str(e)}")
-            logger.info(f"Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
 
 async def send_heartbeat(websocket):
@@ -111,10 +73,9 @@ async def send_heartbeat(websocket):
                 "worker_id": WORKER_ID,
                 "timestamp": time.time()
             }))
-            logger.debug(f"Heartbeat sent")
             await asyncio.sleep(HEARTBEAT_INTERVAL)
         except Exception as e:
-            logger.error(f"Error sending heartbeat: {str(e)}")
+            print(f"\n\n==== ERROR SENDING HEARTBEAT: {str(e)} ===\n\n")
             break
 
 async def handle_message(websocket, message_json):
@@ -123,29 +84,25 @@ async def handle_message(websocket, message_json):
         message = json.loads(message_json)
         message_type = message.get("type")
         
-        logger.debug(f"Received message: {message_type}")
-        
         if message_type == "connection_established":
-            logger.info(f"Connection confirmed: {message.get('message')}")
+            print(f"\n\n==== CONNECTION ESTABLISHED: {message.get('message')} ===\n\n")
         
         elif message_type == "job_assignment":
             await process_job(websocket, message)
         
         elif message_type == "heartbeat_response":
-            logger.debug(f"Heartbeat acknowledged")
-        
+            print(f"\n\n==== HEARTBEAT ACKNOWLEDGED ===\n\n")
         else:
-            logger.warning(f"Unknown message type: {message_type}")
+            print(f"\n\n==== UNKNOWN MESSAGE TYPE: {message_type} ===\n\n")
     
     except json.JSONDecodeError:
-        logger.error(f"Invalid JSON: {message_json}")
+        print(f"\n\n==== INVALID JSON: {message_json} ===\n\n")
     except Exception as e:
-        logger.error(f"Error handling message: {str(e)}")
+        print(f"\n\n==== ERROR HANDLING MESSAGE: {str(e)} ===\n\n")
 
 async def process_job(websocket, job_message):
     """Process a job assignment"""
     job_id = job_message.get("job_id")
-    logger.info(f"Processing job: {job_id}")
     
     # Update status to busy
     await websocket.send(json.dumps({
@@ -158,9 +115,7 @@ async def process_job(websocket, job_message):
     
     try:
         # Simulate job processing
-        logger.info(f"Starting job {job_id}")
         await asyncio.sleep(5)  # Simulate work
-        logger.info(f"Completed job {job_id}")
         
         # Send job completion message
         await websocket.send(json.dumps({
@@ -175,7 +130,7 @@ async def process_job(websocket, job_message):
         }))
         
     except Exception as e:
-        logger.error(f"Error processing job {job_id}: {str(e)}")
+        print(f"\n\n==== ERROR PROCESSING JOB {job_id}: {str(e)} ===\n\n")
         
         # Send job failure message
         await websocket.send(json.dumps({
@@ -197,22 +152,10 @@ async def process_job(websocket, job_message):
 
 if __name__ == "__main__":
     try:
-        # Print startup banner
-        print("""
-        ╔════════════════════════════════════════════════════════════╗
-        ║                                                            ║
-        ║                EmProps Redis Worker                        ║
-        ║                                                            ║
-        ╚════════════════════════════════════════════════════════════╝
-        """)
-        
-        logger.info(f"Starting worker {WORKER_ID}")
-        logger.info(f"Connecting to Redis Hub at {REDIS_API_HOST}:{REDIS_API_PORT}")
-        
         # Run the worker
         asyncio.run(connect_to_hub())
     except KeyboardInterrupt:
-        logger.info("Worker shutting down")
+        print(f"\n\n==== WORKER SHUTTING DOWN ===\n\n")
     except Exception as e:
-        logger.error(f"Unhandled exception: {str(e)}")
+        print(f"\n\n==== UNHANDLED EXCEPTION: {str(e)} ===\n\n")
         sys.exit(1)
