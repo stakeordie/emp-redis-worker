@@ -5,10 +5,19 @@ import sys
 import json
 import uuid
 import time
-from utils.logger import logger
 import asyncio
 import websockets
 from typing import Dict, Any, Optional, List
+
+# Import message models from core module
+from core.message_models import (
+    MessageType,
+    WorkerHeartbeatMessage,
+    WorkerStatusMessage,
+    CompleteJobMessage,
+    BaseMessage
+)
+from core.utils.logger import logger
 
 # Configuration from environment variables
 REDIS_API_HOST = os.environ.get("REDIS_API_HOST", "localhost")
@@ -36,13 +45,12 @@ async def connect_to_hub():
             async with websockets.connect(REDIS_HUB_WS_URL) as websocket:
                 
                 # Send initial status message
-                await websocket.send(json.dumps({
-                    "type": "worker_status",
-                    "worker_id": WORKER_ID,
-                    "status": "idle",
-                    "capabilities": WORKER_CAPABILITIES,
-                    "timestamp": time.time()
-                }))
+                status_message = WorkerStatusMessage(
+                    worker_id=WORKER_ID,
+                    status="idle",
+                    capabilities=WORKER_CAPABILITIES
+                )
+                await websocket.send(status_message.model_dump_json())
                 
                 # Start heartbeat task
                 heartbeat_task = asyncio.create_task(send_heartbeat(websocket))
@@ -68,11 +76,13 @@ async def send_heartbeat(websocket):
     """Send periodic heartbeat messages to the hub"""
     while True:
         try:
-            await websocket.send(json.dumps({
-                "type": "heartbeat",
-                "worker_id": WORKER_ID,
-                "timestamp": time.time()
-            }))
+            # Use the proper WorkerHeartbeatMessage model
+            heartbeat_message = WorkerHeartbeatMessage(
+                worker_id=WORKER_ID,
+                status="idle",
+                load=0.0
+            )
+            await websocket.send(heartbeat_message.model_dump_json())
             await asyncio.sleep(HEARTBEAT_INTERVAL)
         except Exception as e:
             print(f"\n\n==== ERROR SENDING HEARTBEAT: {str(e)} ===\n\n")
@@ -84,13 +94,13 @@ async def handle_message(websocket, message_json):
         message = json.loads(message_json)
         message_type = message.get("type")
         
-        if message_type == "connection_established":
+        if message_type == MessageType.CONNECTION_ESTABLISHED:
             print(f"\n\n==== CONNECTION ESTABLISHED: {message.get('message')} ===\n\n")
         
-        elif message_type == "job_assignment":
+        elif message_type == MessageType.JOB_ASSIGNED:  # Changed from "job_assignment" to match MessageType
             await process_job(websocket, message)
         
-        elif message_type == "heartbeat_response":
+        elif message_type == MessageType.WORKER_HEARTBEAT:  # Changed from "heartbeat_response"
             print(f"\n\n==== HEARTBEAT ACKNOWLEDGED ===\n\n")
         else:
             print(f"\n\n==== UNKNOWN MESSAGE TYPE: {message_type} ===\n\n")
@@ -105,50 +115,52 @@ async def process_job(websocket, job_message):
     job_id = job_message.get("job_id")
     
     # Update status to busy
-    await websocket.send(json.dumps({
-        "type": "worker_status",
-        "worker_id": WORKER_ID,
-        "status": "busy",
-        "job_id": job_id,
-        "timestamp": time.time()
-    }))
+    busy_status = WorkerStatusMessage(
+        worker_id=WORKER_ID,
+        status="busy",
+        capabilities={"job_id": job_id}
+    )
+    await websocket.send(busy_status.model_dump_json())
     
     try:
         # Simulate job processing
         await asyncio.sleep(5)  # Simulate work
         
         # Send job completion message
-        await websocket.send(json.dumps({
-            "type": "job_completed",
-            "worker_id": WORKER_ID,
-            "job_id": job_id,
-            "result": {
+        complete_message = CompleteJobMessage(
+            job_id=job_id,
+            machine_id=WORKER_ID,
+            gpu_id=0,  # Assuming default GPU ID
+            result={
                 "status": "success",
                 "output": f"Job {job_id} completed successfully"
-            },
-            "timestamp": time.time()
-        }))
+            }
+        )
+        await websocket.send(complete_message.model_dump_json())
         
     except Exception as e:
         print(f"\n\n==== ERROR PROCESSING JOB {job_id}: {str(e)} ===\n\n")
         
         # Send job failure message
-        await websocket.send(json.dumps({
-            "type": "job_failed",
-            "worker_id": WORKER_ID,
-            "job_id": job_id,
-            "error": str(e),
-            "timestamp": time.time()
-        }))
+        # Note: Using CompleteJobMessage with a failure result since there's no specific FailJobMessage
+        fail_message = CompleteJobMessage(
+            job_id=job_id,
+            machine_id=WORKER_ID,
+            gpu_id=0,  # Assuming default GPU ID
+            result={
+                "status": "failed",
+                "error": str(e)
+            }
+        )
+        await websocket.send(fail_message.model_dump_json())
     
     finally:
         # Update status back to idle
-        await websocket.send(json.dumps({
-            "type": "worker_status",
-            "worker_id": WORKER_ID,
-            "status": "idle",
-            "timestamp": time.time()
-        }))
+        idle_status = WorkerStatusMessage(
+            worker_id=WORKER_ID,
+            status="idle"
+        )
+        await websocket.send(idle_status.model_dump_json())
 
 if __name__ == "__main__":
     try:
